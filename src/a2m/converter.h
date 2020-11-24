@@ -1,4 +1,4 @@
-#include <stdint.h>
+#include <stddef.h>
 
 #include <a2m/notes.h>
 #include <array>
@@ -47,7 +47,7 @@ class Converter {
               const double activation_level = 0.0,
               const int transpose = 0,
               const std::vector<unsigned int> pitch_set = std::vector<unsigned int>{},
-              const std::array<uint, 2> pitch_range = std::array<uint, 2>{0, 127},
+              const std::array<unsigned int, 2> pitch_range = std::array<unsigned int, 2>{0, 127},
               const unsigned int note_count = 0);
     ~Converter();
 
@@ -63,7 +63,7 @@ class Converter {
     void set_activation_level(const double activation_level);
     void set_transpose(const int transpose);
     void set_pitch_set(const std::vector<unsigned int>& pitch_set);
-    void set_pitch_range(const std::array<uint, 2>& pitch_range);
+    void set_pitch_range(const std::array<unsigned int, 2>& pitch_range);
 
    protected:
     unsigned int samplerate;
@@ -72,7 +72,7 @@ class Converter {
     unsigned int velocity_limit;
     int transpose;
     std::vector<unsigned int> pitch_set;
-    std::array<uint, 2> pitch_range;
+    std::array<unsigned int, 2> pitch_range;
     unsigned int note_count;
     note_map notes;
     double min_freq;

@@ -15,7 +15,7 @@ set_target_properties(a2m-static PROPERTIES OUTPUT_NAME a2m)
 target_link_libraries(a2m fftw3)
 target_link_libraries(a2m-static fftw3)
 
-install(TARGETS a2m  
+install(TARGETS a2m a2m-static
         LIBRARY DESTINATION lib 
         ARCHIVE DESTINATION lib/static)
 

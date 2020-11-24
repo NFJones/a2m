@@ -15,7 +15,7 @@ if(CXXTEST_FOUND)
 
     CXXTEST_ADD_TEST(test-audio-to-midi test_audio_to_midi.cpp ${test_SRC})
 	target_link_libraries(test-audio-to-midi a2m)
-    add_dependencies(test-audio-to-midi audio-to-midi)
+    add_dependencies(test-audio-to-midi a2m)
 endif()
 
 set_target_properties(test-audio-to-midi PROPERTIES EXCLUDE_FROM_ALL 1 EXCLUDE_FROM_DEFAULT_BUILD 1)

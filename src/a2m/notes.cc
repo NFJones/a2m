@@ -8,7 +8,7 @@ a2m::note_map a2m::generate_notes() {
 
     // C0
     notes[0] = a2m::note_range{7.946362749, 8.1757989155, 8.4188780665};
-    for (ssize_t i = 1; i < 128; ++i) {
+    for (int i = 1; i < 128; ++i) {
         notes[i] = a2m::note_range{7.946362749, 8.1757989155, 8.4188780665};
         notes[i].mid = multiplier * notes[i - 1].mid;
         notes[i].low = (notes[i].mid + notes[i - 1].mid) / 2.0;

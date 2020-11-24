@@ -3,6 +3,7 @@
 #include <fftw3.h>
 #include <math.h>
 #include <algorithm>
+#include <string>
 
 a2m::Note::Note() : pitch(0), velocity(0), count(0) {}
 
@@ -12,13 +13,13 @@ bool a2m::Note::operator<(const a2m::Note& rhs) {
     return velocity < rhs.velocity;
 }
 
-a2m::Converter::Converter(const uint samplerate,
-                          const uint block_size,
+a2m::Converter::Converter(const unsigned int samplerate,
+                          const unsigned int block_size,
                           const double activation_level,
                           const int transpose,
                           const std::vector<unsigned int> pitch_set,
-                          const std::array<uint, 2> pitch_range,
-                          const uint note_count)
+                          const std::array<unsigned int, 2> pitch_range,
+                          const unsigned int note_count)
     : samplerate(samplerate),
       block_size(block_size),
       activation_level(activation_level),
@@ -59,7 +60,7 @@ void a2m::Converter::set_pitch_set(const std::vector<unsigned int>& pitch_set) {
     std::lock_guard<std::recursive_mutex> guard(lock);
     this->pitch_set = pitch_set;
 }
-void a2m::Converter::set_pitch_range(const std::array<uint, 2>& pitch_range) {
+void a2m::Converter::set_pitch_range(const std::array<unsigned int, 2>& pitch_range) {
     std::lock_guard<std::recursive_mutex> guard(lock);
     this->pitch_range = pitch_range;
 }
