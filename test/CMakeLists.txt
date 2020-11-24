@@ -18,4 +18,6 @@ if(CXXTEST_FOUND)
     add_dependencies(test-audio-to-midi audio-to-midi)
 endif()
 
+set_target_properties(test-audio-to-midi PROPERTIES EXCLUDE_FROM_ALL 1 EXCLUDE_FROM_DEFAULT_BUILD 1)
+
 add_subdirectory(data)
