@@ -55,39 +55,48 @@ void a2m::Converter::set_activation_level(const double activation_level) {
 void a2m::Converter::set_transpose(const int transpose) {
     std::lock_guard<std::recursive_mutex> guard(lock);
     this->transpose = transpose;
+    cached_freqs = std::map<double, unsigned int>();
 }
 void a2m::Converter::set_pitch_set(const std::vector<unsigned int>& pitch_set) {
     std::lock_guard<std::recursive_mutex> guard(lock);
     this->pitch_set = pitch_set;
+    cached_freqs = std::map<double, unsigned int>();
 }
 void a2m::Converter::set_pitch_range(const std::array<unsigned int, 2>& pitch_range) {
     std::lock_guard<std::recursive_mutex> guard(lock);
     this->pitch_range = pitch_range;
+    cached_freqs = std::map<double, unsigned int>();
+}
+void a2m::Converter::set_note_count(const int note_count) {
+    std::lock_guard<std::recursive_mutex> guard(lock);
+    this->note_count = note_count;
 }
 
 void a2m::Converter::determine_ranges() {
     time_window = std::chrono::milliseconds(static_cast<int>(block_size / (static_cast<double>(samplerate) / 1000)));
-    max_freq = std::min(notes[127].high, static_cast<double>(samplerate) / 2);
-    min_freq = std::max(notes[0].low, static_cast<double>(1000 / time_window.count()));
-    bins = block_size / 2;
-    bin_freqs = std::vector<double>{};
+    if (time_window.count() > 0) {
+        max_freq = std::min(notes[127].high, static_cast<double>(samplerate) / 2);
+        min_freq = std::max(notes[0].low, static_cast<double>(1000 / time_window.count()));
+        bins = block_size / 2;
+        bin_freqs = std::vector<double>{};
 
-    for (size_t i = 0; i < bins; ++i)
-        bin_freqs.push_back(static_cast<double>(i * samplerate) / block_size);
+        for (size_t i = 0; i < bins; ++i)
+            bin_freqs.push_back(static_cast<double>(i * samplerate) / block_size);
 
-    min_bin = 0;
-    for (size_t i = 0; i < bin_freqs.size(); ++i) {
-        if (bin_freqs[i] >= min_freq) {
-            min_bin = i;
-            break;
+        min_bin = 0;
+        for (size_t i = 0; i < bin_freqs.size(); ++i) {
+            if (bin_freqs[i] >= min_freq) {
+                min_bin = i;
+                break;
+            }
         }
-    }
 
-    max_bin = bin_freqs.size() - 1;
-    for (size_t i = 0; i < bin_freqs.size(); ++i) {
-        if (bin_freqs[i] >= max_freq) {
-            max_bin = i - 1;
-            break;
+        max_bin = bin_freqs.size() - 1;
+        for (size_t i = 0; i < bin_freqs.size(); ++i) {
+            if (bin_freqs[i] >= max_freq) {
+                max_bin = i - 1;
+                break;
+            }
         }
     }
 }
@@ -120,10 +129,9 @@ unsigned int a2m::Converter::snap_to_key(unsigned int pitch) {
 }
 
 unsigned int a2m::Converter::freq_to_pitch(const double freq) {
-    static std::map<double, unsigned int> memo;
     unsigned int ret = 127;
     try {
-        ret = memo.at(freq);
+        ret = cached_freqs.at(freq);
     } catch (const std::exception&) {
         for (auto& note : notes) {
             if (note.second.low <= freq && freq <= note.second.high) {
@@ -131,7 +139,7 @@ unsigned int a2m::Converter::freq_to_pitch(const double freq) {
                 break;
             }
         }
-        memo[freq] = ret;
+        cached_freqs[freq] = ret;
     }
     return ret;
 }
@@ -168,7 +176,10 @@ std::vector<a2m::Note> a2m::Converter::freqs_to_notes(const std::vector<std::pai
     if (note_count > 0) {
         std::sort(ret.begin(), ret.end());
         std::vector<a2m::Note> slice;
-        std::copy(ret.begin(), ret.begin() + note_count + 1, std::back_inserter(slice));
+        if (ret.size() >= note_count)
+            std::copy(ret.begin(), ret.begin() + note_count, std::back_inserter(slice));
+        else
+            slice = ret;
         return slice;
     } else
         return ret;

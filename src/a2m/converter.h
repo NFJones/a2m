@@ -64,6 +64,7 @@ class Converter {
     void set_transpose(const int transpose);
     void set_pitch_set(const std::vector<unsigned int>& pitch_set);
     void set_pitch_range(const std::array<unsigned int, 2>& pitch_range);
+    void set_note_count(const int note_count);
 
    protected:
     unsigned int samplerate;
@@ -82,6 +83,7 @@ class Converter {
     unsigned int max_bin;
     unsigned int bins;
     std::vector<double> bin_freqs;
+    std::map<double, unsigned int> cached_freqs;
 
     void determine_ranges();
     std::vector<std::pair<double, double>> samples_to_freqs(double* samples);
