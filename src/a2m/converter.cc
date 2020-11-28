@@ -69,6 +69,7 @@ void a2m::Converter::set_activation_level(const double activation_level) {
 void a2m::Converter::set_pitch_set(const std::vector<unsigned int>& pitch_set) {
     std::lock_guard<std::recursive_mutex> guard(lock);
     this->pitch_set = pitch_set;
+    cached_freqs.clear();
 }
 void a2m::Converter::set_pitch_range(const std::array<unsigned int, 2>& pitch_range) {
     std::lock_guard<std::recursive_mutex> guard(lock);
@@ -123,16 +124,23 @@ static T nearest_value(T val, C arr) {
     auto copy = arr;
     std::sort(copy.begin(), copy.end());
 
-    for (auto iter = copy.begin(); iter != copy.end(); iter++) {
-        if (*iter < val) {
-            if ((iter + 1 == copy.end()) || ((val - *iter) < (*(iter + 1) - val)))
-                return *iter;
-            else
-                return *(iter++);
-        }
-    }
+    auto lower = std::lower_bound(copy.begin(), copy.end(), val);
+    auto upper = std::upper_bound(copy.begin(), copy.end(), val);
 
-    throw std::runtime_error("Failed to determine nearest value for: " + std::to_string(val));
+    if (lower == copy.end() && upper == copy.end())
+        return arr.back();
+    else if (upper == copy.end())
+        return *lower;
+    else if (lower == copy.end())
+        return *upper;
+    else {
+        auto lower_diff = val - *lower;
+        auto upper_diff = *upper - val;
+
+        if (lower_diff < upper_diff)
+            return *lower;
+        return *upper;
+    }
 }
 
 unsigned int a2m::Converter::snap_to_key(unsigned int pitch) {
