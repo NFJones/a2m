@@ -30,11 +30,7 @@ a2m::Converter::Converter(const unsigned int samplerate,
       pitch_range(pitch_range),
       note_count(note_count),
       notes(a2m::generate_notes()) {
-    if (activation_level != 0.0)
-        velocity_limit = 127 * activation_level;
-    else
-        velocity_limit = 1;
-
+    set_activation_level(activation_level);
     determine_ranges();
 }
 
@@ -57,6 +53,10 @@ void a2m::Converter::set_block_size(const unsigned int block_size) {
 void a2m::Converter::set_activation_level(const double activation_level) {
     std::lock_guard<std::recursive_mutex> guard(lock);
     this->activation_level = activation_level;
+    if (activation_level != 0.0)
+        velocity_limit = 127 * activation_level;
+    else
+        velocity_limit = 1;
 }
 void a2m::Converter::set_pitch_set(const std::vector<unsigned int>& pitch_set) {
     std::lock_guard<std::recursive_mutex> guard(lock);
@@ -148,31 +148,38 @@ unsigned int a2m::Converter::amplitude_to_velocity(const double amplitude) {
     return std::min(127, static_cast<int>(127 * (amplitude / bins)));
 }
 
+struct AccummulatedNote {
+    unsigned int pitch;
+    double amplitude;
+    size_t count;
+};
+
 std::vector<a2m::Note> a2m::Converter::freqs_to_notes(const std::vector<std::pair<double, double>>& freqs) {
     std::vector<a2m::Note> ret;
 
-    static std::vector<a2m::Note> accumulator(128);
+    static std::vector<AccummulatedNote> accumulator(128);
     for (size_t i = 0; i < 128; ++i) {
         accumulator[i].pitch = i;
-        accumulator[i].velocity = 0;
+        accumulator[i].amplitude = 0.0;
         accumulator[i].count = 0;
     }
 
     for (const auto& freq : freqs) {
-        auto new_note = a2m::Note(freq_to_pitch(freq.first), amplitude_to_velocity(freq.second));
-        if (new_note.velocity > 0) {
-            accumulator[new_note.pitch].pitch = new_note.pitch;
-            accumulator[new_note.pitch].velocity =
-                ((accumulator[new_note.pitch].velocity * accumulator[new_note.pitch].count) + new_note.velocity) /
-                (accumulator[new_note.pitch].count + 1);
-            accumulator[new_note.pitch].count += 1;
-        }
+        auto new_note = AccummulatedNote{freq_to_pitch(freq.first), freq.second, 0};
+        accumulator[new_note.pitch].pitch = new_note.pitch;
+        accumulator[new_note.pitch].amplitude =
+            ((accumulator[new_note.pitch].amplitude * accumulator[new_note.pitch].count) + new_note.amplitude) /
+            (accumulator[new_note.pitch].count + 1);
+        accumulator[new_note.pitch].count += 1;
     }
 
-    for (auto& note : accumulator)
+    for (auto& note : accumulator) {
         if (note.count > 0 && note.pitch >= pitch_range[0] && note.pitch <= pitch_range[1]) {
-            ret.push_back(note);
+            auto new_note = a2m::Note(note.pitch, amplitude_to_velocity(note.amplitude));
+            if (new_note.velocity > velocity_limit)
+                ret.push_back(new_note);
         }
+    }
 
     if (note_count > 0) {
         std::sort(ret.begin(), ret.end());
