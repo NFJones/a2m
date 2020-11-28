@@ -13,6 +13,10 @@ bool a2m::Note::operator<(const a2m::Note& rhs) const {
     return velocity < rhs.velocity;
 }
 
+bool a2m::Note::operator>(const a2m::Note& rhs) const {
+    return velocity > rhs.velocity;
+}
+
 bool a2m::Note::operator==(const a2m::Note& rhs) const {
     return pitch == rhs.pitch;
 }
@@ -22,7 +26,9 @@ a2m::Converter::Converter(const unsigned int samplerate,
                           const double activation_level,
                           const std::vector<unsigned int> pitch_set,
                           const std::array<unsigned int, 2> pitch_range,
-                          const unsigned int note_count)
+                          const unsigned int note_count,
+                          const int transpose,
+                          const double ceiling)
     : samplerate(samplerate),
       block_size(block_size),
       activation_level(activation_level),
@@ -31,6 +37,8 @@ a2m::Converter::Converter(const unsigned int samplerate,
       note_count(note_count),
       notes(a2m::generate_notes()) {
     set_activation_level(activation_level);
+    set_transpose(transpose);
+    set_ceiling(ceiling);
     determine_ranges();
 }
 
@@ -69,6 +77,16 @@ void a2m::Converter::set_pitch_range(const std::array<unsigned int, 2>& pitch_ra
 void a2m::Converter::set_note_count(const int note_count) {
     std::lock_guard<std::recursive_mutex> guard(lock);
     this->note_count = note_count;
+}
+void a2m::Converter::set_transpose(const int transpose) {
+    std::lock_guard<std::recursive_mutex> guard(lock);
+    this->transpose = std::max(-127, transpose);
+    this->transpose = std::min(127, this->transpose);
+}
+void a2m::Converter::set_ceiling(const double ceiling) {
+    std::lock_guard<std::recursive_mutex> guard(lock);
+    this->ceiling = std::max(0.0, ceiling);
+    this->ceiling = std::min(1.0, this->ceiling);
 }
 
 void a2m::Converter::determine_ranges() {
@@ -145,7 +163,7 @@ unsigned int a2m::Converter::freq_to_pitch(const double freq) {
 }
 
 unsigned int a2m::Converter::amplitude_to_velocity(const double amplitude) {
-    return std::min(127, static_cast<int>(127 * (amplitude / bins)));
+    return std::min(127, static_cast<int>(127 * (amplitude / (bins * ceiling))));
 }
 
 struct AccummulatedNote {
@@ -175,14 +193,14 @@ std::vector<a2m::Note> a2m::Converter::freqs_to_notes(const std::vector<std::pai
 
     for (auto& note : accumulator) {
         if (note.count > 0 && note.pitch >= pitch_range[0] && note.pitch <= pitch_range[1]) {
-            auto new_note = a2m::Note(note.pitch, amplitude_to_velocity(note.amplitude));
+            auto new_note = a2m::Note(note.pitch + transpose, amplitude_to_velocity(note.amplitude));
             if (new_note.velocity > velocity_limit)
                 ret.push_back(new_note);
         }
     }
 
     if (note_count > 0) {
-        std::sort(ret.begin(), ret.end());
+        std::sort(ret.begin(), ret.end(), std::greater<>());
         std::vector<a2m::Note> slice;
         if (ret.size() >= note_count)
             std::copy(ret.begin(), ret.begin() + note_count, std::back_inserter(slice));

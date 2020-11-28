@@ -18,6 +18,7 @@ struct Note {
     Note& operator=(const Note& rhs) = default;
     Note& operator=(Note&& rhs) = default;
     bool operator<(const Note& rhs) const;
+    bool operator>(const Note& rhs) const;
     bool operator==(const Note& rhs) const;
 
     unsigned int pitch;
@@ -39,14 +40,18 @@ class Converter {
      * Notes with velocities below the threshold will be ignored.
      * @param pitch_set A set of pitches in the range [0, 11] to which MIDI notes should be snapped.
      * @param pitch_range A range from [0, 127] used for filtering out unwanted MIDI notes.
-     * @param note_count The maximum number of notes to return per conversion.
+     * @param note_count The maximum number of notes to return per conversion in the range [0, 127].
+     * @param transpose The constant integer by which generated notes should be transposed in the range [-127, 127].
+     * @param ceiling The amplitude ceiling for generated notes in the range [0, 1].
      */
     Converter(const unsigned int samplerate,
               const unsigned int block_size,
               const double activation_level = 0.0,
               const std::vector<unsigned int> pitch_set = std::vector<unsigned int>{},
               const std::array<unsigned int, 2> pitch_range = std::array<unsigned int, 2>{0, 127},
-              const unsigned int note_count = 0);
+              const unsigned int note_count = 0,
+              const int transpose = 0,
+              const double ceiling = 1.0);
     ~Converter();
 
     /**
@@ -62,31 +67,35 @@ class Converter {
     void set_pitch_set(const std::vector<unsigned int>& pitch_set);
     void set_pitch_range(const std::array<unsigned int, 2>& pitch_range);
     void set_note_count(const int note_count);
+    void set_transpose(const int transpose);
+    void set_ceiling(const double ceiling);
 
    protected:
     unsigned int samplerate;
     unsigned int block_size;
+    unsigned int bins;
+    std::chrono::milliseconds time_window;
     double activation_level;
+    unsigned int note_count;
     unsigned int velocity_limit;
+    double ceiling;
+    int transpose;
     std::vector<unsigned int> pitch_set;
     std::array<unsigned int, 2> pitch_range;
-    unsigned int note_count;
     note_map notes;
     double min_freq;
     double max_freq;
-    std::chrono::milliseconds time_window;
     unsigned int min_bin;
     unsigned int max_bin;
-    unsigned int bins;
     std::vector<double> bin_freqs;
     std::map<double, unsigned int> cached_freqs;
 
-    void determine_ranges();
     std::vector<std::pair<double, double>> samples_to_freqs(double* samples);
     std::vector<Note> freqs_to_notes(const std::vector<std::pair<double, double>>& freqs);
     unsigned int freq_to_pitch(const double freq);
     unsigned int amplitude_to_velocity(const double amplitude);
     unsigned int snap_to_key(unsigned int pitch);
+    void determine_ranges();
 
    private:
     Converter(const Converter&) = delete;
