@@ -200,8 +200,9 @@ std::vector<a2m::Note> a2m::Converter::freqs_to_notes(const std::vector<std::pai
     }
 
     for (auto& note : accumulator) {
-        if (note.count > 0 && note.pitch >= pitch_range[0] && note.pitch <= pitch_range[1]) {
-            auto new_note = a2m::Note(note.pitch + transpose, amplitude_to_velocity(note.amplitude));
+        int new_pitch = note.pitch + transpose;
+        if (note.count > 0 && new_pitch >= pitch_range[0] && new_pitch <= pitch_range[1]) {
+            auto new_note = a2m::Note(new_pitch, amplitude_to_velocity(note.amplitude));
             if (new_note.velocity > velocity_limit)
                 ret.push_back(new_note);
         }
