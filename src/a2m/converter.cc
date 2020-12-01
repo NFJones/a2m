@@ -1,6 +1,5 @@
 #include "converter.h"
 
-#include <fftw3.h>
 #include <math.h>
 #include <algorithm>
 #include <string>
@@ -35,14 +34,24 @@ a2m::Converter::Converter(const unsigned int samplerate,
       pitch_set(pitch_set),
       pitch_range(pitch_range),
       note_count(note_count),
-      notes(a2m::generate_notes()) {
+      notes(a2m::generate_notes()),
+      fft_output(nullptr) {
     set_activation_level(activation_level);
     set_transpose(transpose);
     set_ceiling(ceiling);
     determine_ranges();
+
+    for (unsigned int i = 0; i < 128; ++i) {
+        accumulator[i].pitch = i;
+        accumulator[i].amplitude = 0.0;
+        accumulator[i].count = 0;
+    }
 }
 
-a2m::Converter::~Converter() {}
+a2m::Converter::~Converter() {
+    if (fft_output != nullptr)
+        free(fft_output);
+}
 
 void a2m::Converter::set_samplerate(const unsigned int samplerate) {
     std::lock_guard<std::recursive_mutex> guard(lock);
@@ -62,7 +71,7 @@ void a2m::Converter::set_activation_level(const double activation_level) {
     std::lock_guard<std::recursive_mutex> guard(lock);
     this->activation_level = activation_level;
     if (activation_level != 0.0)
-        velocity_limit = 127 * activation_level;
+        velocity_limit = static_cast<unsigned int>(127 * activation_level);
     else
         velocity_limit = 1;
 }
@@ -102,20 +111,27 @@ void a2m::Converter::determine_ranges() {
             bin_freqs[i] = static_cast<double>(i * samplerate) / block_size;
 
         min_bin = 0;
-        for (size_t i = 0; i < bins; ++i) {
+        for (unsigned int i = 0; i < bins; ++i)
             if (bin_freqs[i] >= min_freq) {
                 min_bin = i;
                 break;
             }
-        }
 
         max_bin = bins - 1;
-        for (size_t i = 0; i < bins; ++i) {
+        for (unsigned int i = 0; i < bins; ++i)
             if (bin_freqs[i] >= max_freq) {
                 max_bin = i - 1;
                 break;
             }
-        }
+
+        frequencies.resize(max_bin - min_bin);
+
+        if (fft_output != nullptr)
+            free(fft_output);
+
+        fft_output = (fftw_complex*)malloc(block_size * sizeof(fftw_complex));
+        if (fft_output == nullptr)
+            throw std::runtime_error("Failed to allocate FFT output buffer.");
     }
 }
 
@@ -154,10 +170,10 @@ unsigned int a2m::Converter::snap_to_key(unsigned int pitch) {
 }
 
 unsigned int a2m::Converter::freq_to_pitch(const double freq) {
-    int ret = 127;
     try {
-        ret = cached_freqs.at(freq);
+        return cached_freqs.at(freq);
     } catch (const std::exception&) {
+        int ret = 128;
         for (auto& note : notes) {
             if (note.second.low <= freq && freq <= note.second.high) {
                 ret = snap_to_key(note.first);
@@ -165,46 +181,34 @@ unsigned int a2m::Converter::freq_to_pitch(const double freq) {
             }
         }
         cached_freqs[freq] = ret;
+        return ret;
     }
-    ret = std::min(ret, 127);
-    return std::max(0, ret);
 }
 
 unsigned int a2m::Converter::amplitude_to_velocity(const double amplitude) {
     return std::min(127, static_cast<int>(127 * (amplitude / (bins * ceiling))));
 }
 
-struct AccummulatedNote {
-    unsigned int pitch;
-    double amplitude;
-    size_t count;
-};
-
-std::vector<a2m::Note> a2m::Converter::freqs_to_notes(const std::vector<std::pair<double, double>>& freqs) {
+std::vector<a2m::Note> a2m::Converter::freqs_to_notes() {
     std::vector<a2m::Note> ret;
 
-    static std::vector<AccummulatedNote> accumulator(128);
-    for (size_t i = 0; i < 128; ++i) {
-        accumulator[i].pitch = i;
-        accumulator[i].amplitude = 0.0;
-        accumulator[i].count = 0;
-    }
-
-    for (const auto& freq : freqs) {
-        auto new_note = AccummulatedNote{freq_to_pitch(freq.first), freq.second, 0};
-        accumulator[new_note.pitch].pitch = new_note.pitch;
-        accumulator[new_note.pitch].amplitude =
-            ((accumulator[new_note.pitch].amplitude * accumulator[new_note.pitch].count) + new_note.amplitude) /
-            (accumulator[new_note.pitch].count + 1);
-        accumulator[new_note.pitch].count += 1;
+    for (const auto& freq : frequencies) {
+        if (freq.second > 0.0)
+            [[likely]] {
+                auto& note = accumulator[freq_to_pitch(freq.first)];
+                note.amplitude += freq.second;
+                note.count += 1;
+            }
     }
 
     for (auto& note : accumulator) {
-        int new_pitch = note.pitch + transpose;
+        const int new_pitch = note.pitch + transpose;
         if (note.count > 0 && new_pitch >= pitch_range[0] && new_pitch <= pitch_range[1]) {
-            auto new_note = a2m::Note(new_pitch, amplitude_to_velocity(note.amplitude));
+            auto new_note = a2m::Note(new_pitch, amplitude_to_velocity(note.amplitude / note.count));
             if (new_note.velocity > velocity_limit)
                 ret.push_back(new_note);
+            note.count = 0;
+            note.amplitude = 0.0;
         }
     }
 
@@ -220,22 +224,18 @@ std::vector<a2m::Note> a2m::Converter::freqs_to_notes(const std::vector<std::pai
         return ret;
 }
 
-std::vector<std::pair<double, double>> a2m::Converter::samples_to_freqs(double* samples) {
-    auto ret = std::vector<std::pair<double, double>>(bins);
-
-    std::vector<fftw_complex> out(block_size);
-
-    fftw_plan p = fftw_plan_dft_r2c_1d(block_size, samples, out.data(), FFTW_ESTIMATE | FFTW_PRESERVE_INPUT);
+void a2m::Converter::samples_to_freqs(double* samples) {
+    fftw_plan p = fftw_plan_dft_r2c_1d(block_size, samples, fft_output, FFTW_ESTIMATE | FFTW_PRESERVE_INPUT);
     fftw_execute(p);
 
-    for (size_t i = 0; i < bins; ++i)
-        ret[i] = {bin_freqs[i], sqrt(pow(out[i][0], 2) + pow(out[i][1], 2))};
+    for (size_t i = min_bin; i < max_bin; ++i)
+        frequencies[i - min_bin] = {bin_freqs[i], sqrt(pow(fft_output[i][0], 2) + pow(fft_output[i][1], 2))};
 
     fftw_destroy_plan(p);
-    return ret;
 }
 
 std::vector<a2m::Note> a2m::Converter::convert(double* samples) {
     std::lock_guard<std::recursive_mutex> guard(lock);
-    return freqs_to_notes(samples_to_freqs(samples));
+    samples_to_freqs(samples);
+    return freqs_to_notes();
 }

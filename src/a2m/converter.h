@@ -1,4 +1,5 @@
 #include <a2m/notes.h>
+#include <fftw3.h>
 #include <stddef.h>
 #include <array>
 #include <chrono>
@@ -71,6 +72,16 @@ class Converter {
     void set_ceiling(const double ceiling);
 
    protected:
+    struct AccummulatedNote {
+        unsigned int pitch;
+        double amplitude;
+        size_t count;
+    };
+
+    std::array<AccummulatedNote, 128> accumulator;
+    std::vector<std::pair<double, double>> frequencies;
+    fftw_complex* fft_output;
+
     unsigned int samplerate;
     unsigned int block_size;
     unsigned int bins;
@@ -90,8 +101,8 @@ class Converter {
     std::vector<double> bin_freqs;
     std::map<double, unsigned int> cached_freqs;
 
-    std::vector<std::pair<double, double>> samples_to_freqs(double* samples);
-    std::vector<Note> freqs_to_notes(const std::vector<std::pair<double, double>>& freqs);
+    void samples_to_freqs(double* samples);
+    std::vector<Note> freqs_to_notes();
     unsigned int freq_to_pitch(const double freq);
     unsigned int amplitude_to_velocity(const double amplitude);
     unsigned int snap_to_key(unsigned int pitch);
