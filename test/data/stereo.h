@@ -7,7 +7,7 @@
 // format: WAV (Microsoft) [WAV]
 // subtype: Signed 16 bit PCM [PCM_16]
 
-namespace a2m {
+namespace njones {
 namespace test {
 int stereo_samplerate();
 std::vector<std::vector<double>> stereo_samples();
