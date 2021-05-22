@@ -1,11 +1,9 @@
-
 #include <functional>
-#include <thread>
 #include <vector>
 
 namespace njones {
 namespace audio {
-template <class SampleType, class ConversionType = double, const size_t Threads = 2>
+template <class SampleType, class ConversionType = double>
 class RingBuffer {
    public:
     RingBuffer(
