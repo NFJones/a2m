@@ -3,11 +3,12 @@
 #include <math.h>
 #include <algorithm>
 #include <string>
+#include <fmt/format.h>
 
 njones::audio::a2m::Note::Note() : pitch(0), velocity(0), count(0) {}
 
-njones::audio::a2m::Note::Note(const unsigned int pitch, const unsigned int velocity)
-    : pitch(pitch), velocity(velocity), count(0) {}
+njones::audio::a2m::Note::Note(const unsigned int pitch, const unsigned int raw_pitch, const unsigned int velocity)
+    : pitch(pitch), raw_pitch(raw_pitch), velocity(velocity), count(0) {}
 
 bool njones::audio::a2m::Note::operator<(const njones::audio::a2m::Note& rhs) const {
     return velocity < rhs.velocity;
@@ -44,7 +45,8 @@ njones::audio::a2m::Converter::Converter(const unsigned int samplerate,
       note_count(note_count),
       notes(njones::audio::a2m::generate_notes()),
       fft_output(nullptr),
-      fft_input(nullptr) {
+      fft_input(nullptr),
+      logger([](const std::string&){}) {
     set_activation_level(activation_level);
     set_transpose(transpose);
     set_ceiling(ceiling);
@@ -91,7 +93,6 @@ void njones::audio::a2m::Converter::set_activation_level(const double activation
 void njones::audio::a2m::Converter::set_pitch_set(const std::vector<unsigned int>& pitch_set) {
     std::lock_guard<std::recursive_mutex> guard(lock);
     this->pitch_set = pitch_set;
-    cached_freqs.clear();
 }
 void njones::audio::a2m::Converter::set_pitch_range(const std::array<unsigned int, 2>& pitch_range) {
     std::lock_guard<std::recursive_mutex> guard(lock);
@@ -192,20 +193,33 @@ unsigned int njones::audio::a2m::Converter::snap_to_key(unsigned int pitch) {
     return std::max(0, ret);
 }
 
-unsigned int njones::audio::a2m::Converter::freq_to_pitch(const double freq) {
-    try {
-        return cached_freqs.at(freq);
-    } catch (const std::exception&) {
-        int ret = 128;
-        for (auto& note : notes) {
-            if (note.second.low <= freq && freq <= note.second.high) {
-                ret = snap_to_key(note.first);
-                break;
-            }
+namespace njones {
+namespace audio {
+namespace a2m {
+static struct Pitch { int pitch, raw_pitch; };
+}  // namespace a2m
+}  // namespace audio
+}  // namespace njones
+
+void njones::audio::a2m::Converter::set_logger(std::function<void(const std::string&)> cb) {
+    logger = cb;
+}
+
+void njones::audio::a2m::Converter::log(const std::string& msg) {
+    logger(msg);
+}
+
+njones::audio::a2m::Pitch njones::audio::a2m::Converter::freq_to_pitch(const double freq) {
+    int pitch = 128;
+    int raw_pitch = 128;
+    for (auto& note : notes) {
+        if (note.second.low <= freq && freq <= note.second.high) {
+            raw_pitch = note.first;
+            pitch = snap_to_key(note.first);
+            break;
         }
-        cached_freqs[freq] = ret;
-        return ret;
     }
+    return Pitch{pitch, raw_pitch};
 }
 
 unsigned int njones::audio::a2m::Converter::amplitude_to_velocity(const double amplitude) {
@@ -216,20 +230,23 @@ std::vector<njones::audio::a2m::Note> njones::audio::a2m::Converter::freqs_to_no
     std::vector<njones::audio::a2m::Note> ret;
 
     for (const auto& freq : frequencies) {
-        if (freq.second > 0.0)
-            [[likely]] {
-                auto& note = accumulator[freq_to_pitch(freq.first)];
-                note.amplitude += freq.second;
-                note.count += 1;
-            }
+        if (freq.second > 0.0) [[likely]] {
+            auto pitch = freq_to_pitch(freq.first);
+            auto& note = accumulator[pitch.pitch];
+            note.raw_pitch = pitch.raw_pitch;
+            note.amplitude += freq.second;
+            note.count += 1;
+        }
     }
 
     for (auto& note : accumulator) {
         const int new_pitch = note.pitch + transpose;
         if (note.count > 0 && new_pitch >= pitch_range[0] && new_pitch <= pitch_range[1]) {
-            auto new_note = njones::audio::a2m::Note(new_pitch, amplitude_to_velocity(note.amplitude / note.count));
-            if (new_note.velocity > velocity_limit)
+            auto new_note = njones::audio::a2m::Note(new_pitch, note.raw_pitch + transpose,
+                                                     amplitude_to_velocity(note.amplitude / note.count));
+            if (new_note.velocity > velocity_limit) {
                 ret.push_back(new_note);
+            }
             note.count = 0;
             note.amplitude = 0.0;
         }

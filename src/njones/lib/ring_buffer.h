@@ -1,8 +1,13 @@
+#pragma once
+#include <algorithm>
 #include <functional>
 #include <vector>
 
 namespace njones {
 namespace audio {
+template <typename T, typename U>
+concept SameType = std::same_as<T, U>;
+
 template <class SampleType, class ConversionType = double>
 class RingBuffer {
    public:
@@ -70,29 +75,25 @@ class RingBuffer {
     void add(SampleType** samples, const int nsamples) {
         int remaining = nsamples;
         int offset = 0;
-        int channel_index;
-        int channel_remaining;
-        int channel_offset;
 
         while (remaining > 0) {
+            int max_process = block_size - index;
+            int to_process = std::min(remaining, max_process);
+
             for (int channel = 0; channel < nchannels; ++channel) {
-                channel_offset = offset;
-                channel_index = index;
-                channel_remaining = remaining;
-
-                while (channel_remaining-- > 0) {
-                    buffer[channel][channel_index++] = static_cast<ConversionType>(samples[channel][channel_offset++]);
-
-                    if (channel_index == block_size) {
-                        processor(channel, buffer[channel].data(), channel_offset);
-                        channel_index = 0;
-                        break;
-                    }
-                }
+                add_impl(buffer[channel], samples[channel] + offset, to_process, index);
             }
-            remaining = channel_remaining;
-            offset = channel_offset;
-            index = channel_index;
+
+            index += to_process;
+            remaining -= to_process;
+            offset += to_process;
+
+            if (index == block_size) {
+                for (int channel = 0; channel < nchannels; ++channel) {
+                    processor(channel, buffer[channel].data(), offset - block_size);
+                }
+                index = 0;
+            }
         }
     }
 
@@ -105,6 +106,16 @@ class RingBuffer {
     int index;
 
     std::vector<std::vector<ConversionType>> buffer;
+    template <SameType<SampleType> T>
+    void add_impl(std::vector<ConversionType>& dest, const T* src, int count, int dest_offset) {
+        std::copy_n(src, count, dest.begin() + dest_offset);
+    }
+
+    template <typename T>
+    void add_impl(std::vector<ConversionType>& dest, const T* src, int count, int dest_offset) {
+        std::transform(src, src + count, dest.begin() + dest_offset,
+                       [](const T& sample) { return static_cast<ConversionType>(sample); });
+    }
 };
 }  // namespace audio
 }  // namespace njones

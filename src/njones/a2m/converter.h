@@ -1,8 +1,9 @@
-#include <njones/a2m/notes.h>
 #include <fftw3.h>
+#include <njones/a2m/notes.h>
 #include <stddef.h>
 #include <array>
 #include <chrono>
+#include <functional>
 #include <mutex>
 #include <vector>
 
@@ -14,7 +15,7 @@ namespace a2m {
  */
 struct Note {
     Note();
-    Note(const unsigned int pitch, const unsigned int velocity);
+    Note(const unsigned int pitch, const unsigned int raw_pitch, const unsigned int velocity);
     Note(const Note& rhs) = default;
     Note(Note&& rhs) = default;
 
@@ -25,9 +26,11 @@ struct Note {
     bool operator==(const Note& rhs) const;
 
     unsigned int pitch;
+    unsigned int raw_pitch;
     unsigned int velocity;
     unsigned int count;
 };
+struct Pitch;
 
 /**
  * @brief An FFT to MIDI note converter that analyzes a block of samples
@@ -64,6 +67,7 @@ class Converter {
      */
     std::vector<Note> convert(double* samples);
 
+    void set_logger(std::function<void(const std::string&)> cb);
     void set_samplerate(const unsigned int samplerate);
     void set_block_size(const unsigned int block_size);
     void set_activation_level(const double activation_level);
@@ -76,6 +80,7 @@ class Converter {
    protected:
     struct AccummulatedNote {
         unsigned int pitch;
+        unsigned int raw_pitch;
         double amplitude;
         size_t count;
     };
@@ -103,14 +108,15 @@ class Converter {
     unsigned int min_bin;
     unsigned int max_bin;
     std::vector<double> bin_freqs;
-    std::map<double, unsigned int> cached_freqs;
+    std::function<void(const std::string&)> logger;
 
     void samples_to_freqs(double* samples);
     std::vector<Note> freqs_to_notes();
-    unsigned int freq_to_pitch(const double freq);
+    Pitch freq_to_pitch(const double freq);
     unsigned int amplitude_to_velocity(const double amplitude);
     unsigned int snap_to_key(unsigned int pitch);
     void determine_ranges();
+    void log(const std::string& msg);
 
    private:
     Converter(const Converter&) = delete;
